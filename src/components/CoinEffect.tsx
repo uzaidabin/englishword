@@ -17,7 +17,6 @@ interface CoinEffectProps {
 }
 
 export function CoinEffect({ active }: CoinEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const [particles, setParticles] = useState<Particle[]>([])
   const rafRef = useRef<number>(0)
   const countRef = useRef(0)
