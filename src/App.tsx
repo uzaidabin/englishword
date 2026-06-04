@@ -5,17 +5,26 @@ import { WelcomeScreen } from '@/components/WelcomeScreen'
 import { GameScreen } from '@/components/GameScreen'
 import { StatsDialog } from '@/components/StatsDialog'
 import { LevelComplete } from '@/components/LevelComplete'
-import { words } from '@/data/words'
+import type { Word } from '@/data/words'
 
 function App() {
-  const { state, startGame, selectLetter, deselectLetter, clearAll, submitAnswer, nextWord, nextLevel, useHint, goHome } = useGameState()
-  const { stats, recordWord } = useStats()
+  const { state, startGame, selectLetter, deselectLetter, clearAll, submitAnswer, nextWord, nextLevel, useHint, goHome, resetGame, hasSavedGame } = useGameState()
+  const { stats, recordWord, resetStats } = useStats()
   const [statsOpen, setStatsOpen] = useState(false)
+
+  const handleStart = (words: Word[], listId?: string) => {
+    startGame(words, listId)
+  }
+
+  const handleReset = () => {
+    resetGame()
+    resetStats()
+  }
 
   return (
     <>
       {state.phase === 'welcome' && (
-        <WelcomeScreen onStart={startGame} />
+        <WelcomeScreen onStart={handleStart} hasSavedGame={hasSavedGame} onReset={handleReset} />
       )}
 
       {(state.phase === 'playing' || state.phase === 'feedback') && (
@@ -37,7 +46,7 @@ function App() {
           score={state.score}
           streak={state.streak}
           currentLevel={state.currentLevel}
-          onNextLevel={() => nextLevel(words)}
+          onNextLevel={() => nextLevel()}
           onHome={goHome}
         />
       )}

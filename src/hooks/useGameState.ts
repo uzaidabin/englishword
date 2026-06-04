@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { Word } from '@/data/words'
 import {
   scrambleLetters,
@@ -12,6 +12,8 @@ import {
 
 export type Phase = 'welcome' | 'playing' | 'feedback' | 'levelComplete'
 
+const PROGRESS_KEY = 'spelling-game-progress'
+
 export interface GameState {
   phase: Phase
   score: number
@@ -23,20 +25,101 @@ export interface GameState {
   feedback: Feedback[] | null
   feedbackCorrect: boolean | null
   words: Word[]
+  allWords: Word[]
   scrambled: string[]
   currentWord: Word | null
   hintsUsed: number
   maxHints: number
   startTime: number
-  selectedGrades: string[]
+  selectedListId: string | null
+}
+
+interface SavedProgress {
+  score: number
+  streak: number
+  bestStreak: number
+  currentLevel: number
+  currentWordIndex: number
+  selectedLetters: (number | null)[]
+  feedback: Feedback[] | null
+  feedbackCorrect: boolean | null
+  words: Word[]
+  allWords: Word[]
+  scrambled: string[]
+  currentWord: Word | null
+  hintsUsed: number
+  maxHints: number
+  startTime: number
+  selectedListId: string | null
+  phase: Phase
+}
+
+function saveProgress(state: GameState) {
+  if (state.phase === 'welcome') return
+  try {
+    const toSave: SavedProgress = {
+      score: state.score,
+      streak: state.streak,
+      bestStreak: state.bestStreak,
+      currentLevel: state.currentLevel,
+      currentWordIndex: state.currentWordIndex,
+      selectedLetters: state.selectedLetters,
+      feedback: state.feedback,
+      feedbackCorrect: state.feedbackCorrect,
+      words: state.words,
+      allWords: state.allWords,
+      scrambled: state.scrambled,
+      currentWord: state.currentWord,
+      hintsUsed: state.hintsUsed,
+      maxHints: state.maxHints,
+      startTime: state.startTime,
+      selectedListId: state.selectedListId,
+      phase: state.phase,
+    }
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify(toSave))
+  } catch { /* ignore */ }
+}
+
+function loadProgress(): SavedProgress | null {
+  try {
+    const raw = localStorage.getItem(PROGRESS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return null
+}
+
+function clearProgress() {
+  localStorage.removeItem(PROGRESS_KEY)
 }
 
 function getLevelConfig(level: number): LevelConfig {
   return LEVELS[Math.min(level - 1, LEVELS.length - 1)]
 }
 
-export function useGameState() {
-  const [state, setState] = useState<GameState>({
+function createInitialState(): GameState {
+  const saved = loadProgress()
+  if (saved && saved.phase !== 'welcome' && saved.currentWord) {
+    return {
+      phase: saved.phase,
+      score: saved.score,
+      streak: saved.streak,
+      bestStreak: saved.bestStreak,
+      currentLevel: saved.currentLevel,
+      currentWordIndex: saved.currentWordIndex,
+      selectedLetters: saved.selectedLetters,
+      feedback: saved.feedback,
+      feedbackCorrect: saved.feedbackCorrect,
+      words: saved.words,
+      allWords: saved.allWords,
+      scrambled: saved.scrambled,
+      currentWord: saved.currentWord,
+      hintsUsed: saved.hintsUsed,
+      maxHints: saved.maxHints,
+      startTime: saved.startTime,
+      selectedListId: saved.selectedListId,
+    }
+  }
+  return {
     phase: 'welcome',
     score: 0,
     streak: 0,
@@ -47,21 +130,31 @@ export function useGameState() {
     feedback: null,
     feedbackCorrect: null,
     words: [],
+    allWords: [],
     scrambled: [],
     currentWord: null,
     hintsUsed: 0,
     maxHints: 3,
     startTime: 0,
-    selectedGrades: [],
-  })
+    selectedListId: null,
+  }
+}
 
+export function useGameState() {
+  const [state, setState] = useState<GameState>(createInitialState)
   const stateRef = useRef(state)
   stateRef.current = state
 
-  const startGame = useCallback((allWords: Word[], grades: string[]) => {
-    const filtered = grades.length > 0 ? allWords.filter(w => grades.includes(w.grade)) : [...allWords]
+  useEffect(() => {
+    saveProgress(state)
+  }, [state])
+
+  const hasSavedGame = state.phase !== 'welcome'
+
+
+  const startGame = useCallback((wordPool: Word[], listId?: string) => {
     const config = getLevelConfig(1)
-    const words = getWordsForLevel(filtered, config)
+    const words = getWordsForLevel(wordPool, config)
 
     if (words.length === 0) return
 
@@ -79,12 +172,13 @@ export function useGameState() {
       feedback: null,
       feedbackCorrect: null,
       words,
+      allWords: wordPool,
       scrambled,
       currentWord: word,
       hintsUsed: 0,
       maxHints: config.maxHints,
       startTime: Date.now(),
-      selectedGrades: grades,
+      selectedListId: listId ?? null,
     })
   }, [])
 
@@ -95,7 +189,6 @@ export function useGameState() {
       const emptyIdx = prev.selectedLetters.indexOf(null)
       if (emptyIdx === -1) return prev
 
-      // Check if already selected
       if (prev.selectedLetters.includes(poolIndex)) return prev
 
       const newSelected = [...prev.selectedLetters]
@@ -113,7 +206,6 @@ export function useGameState() {
       const newSelected = [...prev.selectedLetters]
       newSelected[slotIndex] = null
 
-      // Compact: shift remaining left
       const compacted: (number | null)[] = newSelected.filter(x => x !== null)
       while (compacted.length < newSelected.length) {
         compacted.push(null)
@@ -167,7 +259,6 @@ export function useGameState() {
       const nextIdx = prev.currentWordIndex + 1
       const config = getLevelConfig(prev.currentLevel)
 
-      // Level complete?
       if (nextIdx >= prev.words.length) {
         return {
           ...prev,
@@ -200,19 +291,15 @@ export function useGameState() {
     })
   }, [])
 
-  const nextLevel = useCallback((allWords: Word[]) => {
+  const nextLevel = useCallback(() => {
     setState(prev => {
       const newLevel = prev.currentLevel + 1
-      const filtered = prev.selectedGrades.length > 0
-        ? allWords.filter(w => prev.selectedGrades.includes(w.grade))
-        : [...allWords]
       const config = getLevelConfig(newLevel)
-      const words = getWordsForLevel(filtered, config)
+      const words = getWordsForLevel(prev.allWords, config)
 
       if (words.length === 0) {
-        // Not enough words for next level, replay with shuffled
         const fallbackConfig = getLevelConfig(prev.currentLevel)
-        const fallbackWords = getWordsForLevel(filtered, fallbackConfig)
+        const fallbackWords = getWordsForLevel(prev.allWords, fallbackConfig)
         if (fallbackWords.length === 0) return prev
 
         const word = fallbackWords[0]
@@ -260,15 +347,12 @@ export function useGameState() {
       const target = prev.currentWord.word
       const newSelected = [...prev.selectedLetters]
 
-      // Find first wrong or empty slot
       for (let i = 0; i < target.length; i++) {
         const currentPoolIdx = newSelected[i]
         const currentLetter = currentPoolIdx !== null ? prev.scrambled[currentPoolIdx] : ''
         if (currentLetter !== target[i]) {
-          // Find the correct letter in the pool that's not already selected
           for (let j = 0; j < prev.scrambled.length; j++) {
             if (prev.scrambled[j] === target[i] && !newSelected.includes(j)) {
-              // Remove the current letter at this slot (if any)
               newSelected[i] = j
               break
             }
@@ -292,6 +376,29 @@ export function useGameState() {
     }))
   }, [])
 
+  const resetGame = useCallback(() => {
+    clearProgress()
+    setState({
+      phase: 'welcome',
+      score: 0,
+      streak: 0,
+      bestStreak: 0,
+      currentLevel: 1,
+      currentWordIndex: 0,
+      selectedLetters: [],
+      feedback: null,
+      feedbackCorrect: null,
+      words: [],
+      allWords: [],
+      scrambled: [],
+      currentWord: null,
+      hintsUsed: 0,
+      maxHints: 3,
+      startTime: 0,
+      selectedListId: null,
+    })
+  }, [])
+
   return {
     state,
     startGame,
@@ -303,5 +410,7 @@ export function useGameState() {
     nextLevel,
     useHint,
     goHome,
+    resetGame,
+    hasSavedGame,
   }
 }

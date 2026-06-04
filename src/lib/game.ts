@@ -75,10 +75,6 @@ export function calculateScore(streak: number, timeTakenMs: number, usedHint: bo
   return points
 }
 
-export function getWordsByGrade(allWords: Word[], grades: string[]): Word[] {
-  if (grades.length === 0) return [...allWords]
-  return allWords.filter(w => grades.includes(w.grade))
-}
 
 export function getWordsForLevel(words: Word[], level: LevelConfig): Word[] {
   const filtered = words.filter(w => w.word.length >= level.minLen && w.word.length <= level.maxLen)
